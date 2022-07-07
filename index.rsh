@@ -1,19 +1,45 @@
 'reach 0.1';
+'use strict';
+
+const Common = {
+  seeTimeout: Fun([], Null),
+  seeTransfer: Fun([], Null),
+};
 
 export const main = Reach.App(() => {
-  const A = Participant('Alice', {
-    // Specify Alice's interact interface here
+  const Alice = Participant('Alice', {
+    ...Common,
+    getSwap: Fun([], Tuple(Token, UInt, Token, UInt, UInt)),
   });
-  const B = Participant('Bob', {
-    // Specify Bob's interact interface here
+  const Bob = Participant('Bob', {
+    ...Common,
+    acceptSwap: Fun([Token, UInt, Token, UInt], Bool),
   });
   init();
-  // The first one to publish deploys the contract
-  A.publish();
+
+  Alice.only(() => {
+    const [ tokenA, amtA, tokenB, amtB, time ] = declassify(interact.getSwap());
+    assume(tokenA != tokenB); });
+  Alice.publish(tokenA, amtA, tokenB, amtB, time);
   commit();
-  // The second one to publish always attaches
-  B.publish();
+  Alice.pay([ [amtA, tokenA] ]);
   commit();
-  // write your program here
+
+  Bob.only(() => {
+    const bobSwap = declassify(interact.acceptSwap(tokenA, amtA, tokenB, amtB)); });
+  Bob.pay([ [amtB, tokenB] ])
+    .when(bobSwap)
+    .timeout(relativeTime(time), () => {
+      Alice.publish();
+      transfer(amtA, tokenA).to(Alice);
+      each([Alice, Bob], () => interact.seeTimeout());
+      commit();
+      exit();
+    });
+  transfer(amtB, tokenB).to(Alice);
+  transfer([ [amtA, tokenA] ]).to(Bob);
+  each([Alice, Bob], () => interact.seeTransfer());
+  commit();
+
   exit();
-});
+}); 
